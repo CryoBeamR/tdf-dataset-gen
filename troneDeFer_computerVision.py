@@ -1,10 +1,13 @@
-import os 
+from glob import glob 
+import os
+import pickle 
 # import caer
 # import canaro
 import numpy as np
 import cv2 
 import matplotlib.pyplot as plt
 import random
+import matplotlib.image as mpimg
 # import gc
 # import matplotlib.pyplot as plt
 # from tensorflow.keras.utils import to_categorical
@@ -90,32 +93,40 @@ def extract_card (img, output_fn=None, min_focus=120, debug=False):
         return False,None
     
     # Convert in gray color
-    gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
-
+    # gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
+    
     
     # Noise-reducing and edge-preserving filter
     # Added: this filter make it easier to detect class contour 
-    gray_bf=cv2.bilateralFilter(gray,11,17,17)
+    # gray_bf=cv2.bilateralFilter(gray,11,75,75)
     # Added: this blur make it easier to detect card contoura
-    gray_mb=cv2.medianBlur(gray,5)
+    # gray_mb=cv2.GaussianBlur(gray,(5,5),0)
     
     # Edge extraction
     # Added
-    edge_bf=cv2.Canny(img,75,100)
+    # edge_bf=cv2.Canny(gray_bf,100,120)
     # edge_mb=cv2.Canny(gray_mb,50,200)
     # tr,edge_bf=cv2.threshold(gray_bf,225,235,cv2.THRESH_BINARY_INV)
-    tr,edge_mb=cv2.threshold(gray_bf,200,235,cv2.THRESH_BINARY_INV)
+    b,g,r = cv2.split(img)
+#    was 131 and 132
+    tr,edge_mb=cv2.threshold(g,150,156,cv2.THRESH_BINARY_INV)
+
+    # tr,edge_mb=cv2.threshold(b,15,20,cv2.THRESH_BINARY_INV)
+
+    # tr,edge_mb=cv2.threshold(r,121,130,cv2.THRESH_BINARY_INV)
+    
+    
      
     # cv2.imshow("edge card", edge)
     # cv2.waitKey(0)
 
     # Find the contours in the edged image
     # Added
-    cnts_bf, _ = cv2.findContours(edge_bf.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # cnts_bf, _ = cv2.findContours(edge_bf.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     cnts_mb, _ = cv2.findContours(edge_mb.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
     # We suppose that the contour with largest area corresponds to the contour delimiting the card
-    cnt_bf = sorted(cnts_bf, key = cv2.contourArea, reverse = True)[0]
+    # cnt_bf = sorted(cnts_bf, key = cv2.contourArea, reverse = True)[0]
     cnt_mb = sorted(cnts_mb, key = cv2.contourArea, reverse = True)[0]
     
     # We want to check that 'cnt' is the contour of a rectangular shape
@@ -127,34 +138,21 @@ def extract_card (img, output_fn=None, min_focus=120, debug=False):
     box_mb=np.int0(box_mb)
     areaCnt=cv2.contourArea(cnt_mb)
     areaBox=cv2.contourArea(box_mb)
-    valid_card=areaCnt/areaBox>0.75
+    valid=areaCnt/areaBox>0.60
 
-    rect_bf=cv2.minAreaRect(cnt_bf)
-    box_bf=cv2.boxPoints(rect_bf)
-    box_bf=np.int0(box_bf)
-    areaCnt=cv2.contourArea(cnt_bf)
-    areaBox=cv2.contourArea(box_bf)
-    valid=areaCnt/areaBox>0.95
+    # rect_bf=cv2.minAreaRect(cnt_bf)
+    # box_bf=cv2.boxPoints(rect_bf)
+    # box_bf=np.int0(box_bf)
+    # areaCnt=cv2.contourArea(cnt_bf)
+    # areaBox=cv2.contourArea(box_bf)
+    # valid=areaCnt/areaBox>0.95
     
-    if valid_card:
+    if valid:
         # We want transform the zone inside the contour into the reference rectangle of dimensions (cardW,cardH)
-        ((xr,yr),(wr_bf,hr_bf),thetar)=rect_bf
+        # ((xr,yr),(wr_bf,hr_bf),thetar)=rect_bf
         ((xr,yr),(wr_mb,hr_mb),thetar)=rect_mb
         # Determine 'Mp' the transformation that transforms 'box' into the reference rectangle
         Mp=cv2.getPerspectiveTransform(np.float32(box_mb),refCardRotHL)
-        
-        # if wr_bf < (wr_mb/2) and hr_bf < (hr_mb)/2:
-        #     Mp=cv2.getPerspectiveTransform(np.float32(box_mb),refCardRotHL)
-        #     print(f'*')
-        # elif wr_bf > (wr_mb/2) and hr_bf < (hr_mb)/2:
-        #     Mp=cv2.getPerspectiveTransform(np.float32(box_mb),refCardRotHR)
-        #     print(f'**')
-        # elif wr_bf < (wr_mb/2) and hr_bf > (hr_mb)/2:
-        #     Mp=cv2.getPerspectiveTransform(np.float32(box_mb),refCardRotLL)
-        #     print(f'***')
-        # else :
-        #     Mp=cv2.getPerspectiveTransform(np.float32(box_mb),refCardRotHL)
-        #     print(f'****')
 
         # Determine the warped image by applying the transformation to the image
         imgwarp=cv2.warpPerspective(img,Mp,(cardW,cardH))
@@ -176,9 +174,11 @@ def extract_card (img, output_fn=None, min_focus=120, debug=False):
         cv2.drawContours(alphachannel,cntwarp,0,255,-1)
         
         # Apply the alphamask onto the alpha channel to clean it
+        alphachannel=cv2.bitwise_or(alphachannel,alphamask)
         alphachannel=cv2.bitwise_and(alphachannel,alphamask)
         
         # Add the alphachannel to the warped image
+        # print(imgwarp)
         imgwarp[:,:,3]=alphachannel
         
         # Save the image to file
@@ -186,18 +186,20 @@ def extract_card (img, output_fn=None, min_focus=120, debug=False):
             cv2.imwrite(output_fn,imgwarp)
         
     if debug:
-        cv2.imshow("Gray",gray)
-        cv2.imshow("Canny Bilateral Filter",edge_bf)
-        cv2.imshow("Canny Median Blur",edge_mb)
+        cv2.imshow("Green Intensity",g)
+        cv2.imshow("Red Intensity",r)
+        cv2.imshow("Blue Intensity",b)
+        # cv2.imshow("Canny Bilateral Filter",edge_bf)
+        cv2.imshow("Threshold",edge_mb)
         edge_bgr_mb=cv2.cvtColor(edge_mb,cv2.COLOR_GRAY2BGR)
-        edge_bgr_bf=cv2.cvtColor(edge_bf,cv2.COLOR_GRAY2BGR)
+        # edge_bgr_bf=cv2.cvtColor(edge_bf,cv2.COLOR_GRAY2BGR)
         cv2.drawContours(edge_bgr_mb,[box_mb],0,(0,0,255),3)
         cv2.drawContours(edge_bgr_mb,[cnt_mb],0,(0,255,0),-1)
         cv2.imshow("Contour with biggest area of Median Blur",edge_bgr_mb)
 
-        cv2.drawContours(edge_bgr_bf,[box_bf],0,(0,0,255),3)
-        cv2.drawContours(edge_bgr_bf,[cnt_bf],0,(0,255,0),-1)
-        cv2.imshow("Contour with biggest area of Bilateral Filter",edge_bgr_bf)
+        # cv2.drawContours(edge_bgr_bf,[box_bf],0,(0,0,255),3)
+        # cv2.drawContours(edge_bgr_bf,[cnt_bf],0,(0,255,0),-1)
+        # cv2.imshow("Contour with biggest area of Bilateral Filter",edge_bgr_bf)
         if valid:
             cv2.imshow("Alphachannel",alphachannel)
             cv2.imshow("Extracted card",imgwarp)
@@ -216,16 +218,16 @@ def findHull(img, corner=refCornerHL, debug="no"):
     corner=corner.astype(np.int_)
 
     # We will focus on the zone of 'img' delimited by 'corner'
-    x1=int(corner[0][0])
-    y1=int(corner[0][1])
-    x2=int(corner[2][0])
-    y2=int(corner[2][1])
-    w=x2-x1
-    h=y2-y1
-    zone=img[y1:y2,x1:x2].copy()
+    # x1=int(corner[0][0])
+    # y1=int(corner[0][1])
+    # x2=int(corner[2][0])
+    # y2=int(corner[2][1])
+    # w=x2-x1
+    # h=y2-y1
+    # zone=img[y1:y2,x1:x2].copy()
 
-    strange_cnt=np.zeros_like(zone)
-    gray=cv2.cvtColor(zone,cv2.COLOR_BGR2GRAY)
+    strange_cnt=np.zeros_like(img)
+    gray=cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
     thld=cv2.Canny(gray,30,200)
     thld = cv2.dilate(thld,kernel,iterations=1)
     if debug!="no": cv2.imshow("thld",thld)
@@ -250,13 +252,14 @@ def findHull(img, corner=refCornerHL, debug="no"):
         cx=int(M['m10']/M['m00'])
         cy=int(M['m01']/M['m00'])
         #  abs(w/2-cx)<w*0.3 and abs(h/2-cy)<h*0.4 : TWEAK, the idea here is to keep only the contours which are closed to the center of the zone
-        if area >= min_area and abs(w/2-cx)<w*0.3 and abs(h/2-cy)<h*0.4 and solidity>min_solidity:
-            if debug != "no" :
-                cv2.drawContours(zone,[c],0,(255,0,0),-1)
-            if concat_contour is None:
-                concat_contour=c
-            else:
-                concat_contour=np.concatenate((concat_contour,c))
+        
+        if debug != "no" :
+            cv2.drawContours(img,[c],0,(255,0,0),-1)
+        if concat_contour is None:
+            concat_contour=c
+        elif cv2.contourArea(concat_contour) < area:
+            concat_contour=c
+           
         if debug != "no" and solidity <= min_solidity :
             print("Solidity",solidity)
             cv2.drawContours(strange_cnt,[c],0,255,2)
@@ -269,15 +272,16 @@ def findHull(img, corner=refCornerHL, debug="no"):
         hull=cv2.convexHull(concat_contour)
         hull_area=cv2.contourArea(hull)
         # If the area of the hull is to small or too big, there may be a problem
-        min_hull_area=500 # TWEAK, deck and 'zoom' dependant
-        max_hull_area=28200 # TWEAK, deck and 'zoom' dependant
+        min_hull_area=60    000 # TWEAK, deck and 'zoom' dependant
+        max_hull_area=78000 # TWEAK, deck and 'zoom' dependant
+        # print("Hull area=",hull_area)
         if hull_area < min_hull_area or hull_area > max_hull_area: 
             ok=False
             if debug!="no":
                 print("Hull area=",hull_area,"too large or too small")
         # So far, the coordinates of the hull are relative to 'zone'
         # We need the coordinates relative to the image -> 'hull_in_img' 
-        hull_in_img=hull+corner[0]
+        hull_in_img=hull
 
     else:
         ok=False
@@ -285,9 +289,8 @@ def findHull(img, corner=refCornerHL, debug="no"):
     
     if debug != "no" :
         if concat_contour is not None:
-            cv2.drawContours(zone,[hull],0,(0,255,0),1)
+            cv2.drawContours(img,[hull],0,(0,255,0),1)
             cv2.drawContours(img,[hull_in_img],0,(0,255,0),1)
-        cv2.imshow("Zone",zone)
         cv2.imshow("Image",img)
         if ok and debug!="pause_always":
             key=cv2.waitKey(1)
@@ -301,7 +304,7 @@ def findHull(img, corner=refCornerHL, debug="no"):
     
     return hull_in_img
 
-def extract_cards_from_video(video_fn, output_dir=None, keep_ratio=5, min_focus=120, debug=False):
+def extract_cards_from_video(video_fn = None, output_dir=None, keep_ratio=5, min_focus=120, live=False, debug=False,):
     """
         Extract cards from media file 'video_fn' 
         If 'output_dir' is specified, the cards are saved in 'output_dir'.
@@ -311,13 +314,15 @@ def extract_cards_from_video(video_fn, output_dir=None, keep_ratio=5, min_focus=
         
         Returns list of extracted images
     """
-    if not os.path.isfile(video_fn):
-        print(f"Video file {video_fn} does not exist !!!")
-        return -1,[]
-    if output_dir is not None and not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    if not live :
+        if not os.path.isfile(video_fn) :
+            print(f"Video file {video_fn} does not exist !!!")
+            return -1,[]
+        if output_dir is not None and not os.path.exists(output_dir):
+            os.makedirs(output_dir)
         
-    cap=cv2.VideoCapture(video_fn)
+    input = 1 if live else video_fn
+    cap=cv2.VideoCapture(input)
     
     frame_nb=0
     imgs_list=[]
@@ -347,7 +352,7 @@ def extract_cards_from_video(video_fn, output_dir=None, keep_ratio=5, min_focus=
 # img=cv2.imread(f,cv2.IMREAD_UNCHANGED)
 bord_size=2 # bord_size alpha=0
 alphamask=np.ones((cardH,cardW),dtype=np.uint8)*255
-cv2.rectangle(alphamask,(0,0),(cardW-1,cardH-1),0,bord_size)
+cv2.rectangle(alphamask,(0,0),(cardW-2,cardH-2),0,bord_size)
 cv2.line(alphamask,(bord_size*3,0),(0,bord_size*3),0,bord_size)
 cv2.line(alphamask,(cardW-bord_size*3,0),(cardW,bord_size*3),0,bord_size)
 cv2.line(alphamask,(0,cardH-bord_size*3),(bord_size*3,cardH),0,bord_size)
@@ -356,11 +361,102 @@ plt.figure(figsize=(10,10))
 plt.imshow(alphamask)
 # plt.show() 
 
-card_name = "Lyanna_Stark"
-# extract_cards_from_video(f"./videos/{card_name}.3gpp",f"./photos/{card_name}",debug= True)
-img = cv2.imread(f"./photos/cards/{card_name}/{card_name}.jpg",cv2.IMREAD_UNCHANGED)
 
-valid ,card = extract_card(img, debug = True)
-cv2.imshow('extracted image', card)
+
+# video_dir="data/videos_test"
+# extension="mkv"
+# imgs_dir="data/cards"
+
+# for videoname in os.listdir(video_dir):
+#     card_name=videoname
+#     video_fn=os.path.join(video_dir,card_name)
+#     output_dir=os.path.join(imgs_dir,card_name[:-4])
+#     if not os.path.isdir(output_dir):
+#         os.makedirs(output_dir)
+#     imgs=extract_cards_from_video(video_fn,output_dir)
+#     print("Extracted images for %s : %d"%(card_name,len(imgs)))
+
+# card_name = "Catelyn Stark"
+# extract_cards_from_video(f"data/videos/{card_name}.mkv",output_dir=f"data/cards/{card_name}",debug= True)
+
+card_name = "Robb Stark"
+# extract_cards_from_video(f"data/videos/{card_name}.mkv",debug= True ,live=True)
+
+img = cv2.imread(f"./data/cards/{card_name}/997319738.png",cv2.IMREAD_UNCHANGED)
+
+data_dir="data"
+# backgrounds_pck_fn=data_dir+"/backgrounds.pck"
+# dtd_dir="dtd/images/"
+# bg_images=[]
+# for subdir in glob(dtd_dir+"/*"):
+#     for f in glob(subdir+"/*.jpg"):
+#         bg_images.append(mpimg.imread(f))
+# print("Nb of images loaded :",len(bg_images))
+# print("Saved in :",backgrounds_pck_fn)
+# pickle.dump(bg_images,open(backgrounds_pck_fn,'wb'))
+
+imgs_dir="data/cards"
+cards_pck_fn=data_dir+"/cards.pck"
+
+cards={}
+for card_name in os.listdir(imgs_dir):
+     
+    card_dir=os.path.join(imgs_dir,card_name)
+    if not os.path.isdir(card_dir):
+        print(f"!!! {card_dir} does not exist !!!")
+        continue
+    cards[card_name]=[]
+    for f in glob(card_dir+"/*.png"):
+        img=cv2.imread(f,cv2.IMREAD_UNCHANGED)
+        hull=findHull(img,refCornerHL,debug="no") 
+        if hull is None: 
+            print(f"File {f} not used.")
+            continue
+        # We store the image in "rgb" format (we don't need opencv anymore)
+        img=cv2.cvtColor(img,cv2.COLOR_BGRA2RGBA)
+        cards[card_name].append((img,hull))
+    print(f"Nb images for {card_name} : {len(cards[card_name])}")
+
+
+
+print("Saved in :",cards_pck_fn)
+pickle.dump(cards,open(cards_pck_fn,'wb'))
+
+cv2.destroyAllWindows()
+def display_img(img,polygons=[],channels="bgr",size=9):
+    """
+        Function to display an inline image, and draw optional polygons (bounding boxes, convex hulls) on it.
+        Use the param 'channels' to specify the order of the channels ("bgr" for an image coming from OpenCV world)
+    """
+    if not isinstance(polygons,list):
+        polygons=[polygons]    
+    if channels=="bgr": # bgr (cv2 image)
+        nb_channels=img.shape[2]
+        if nb_channels==4:
+            img=cv2.cvtColor(img,cv2.COLOR_BGRA2RGBA)
+        else:
+            img=cv2.cvtColor(img,cv2.COLOR_BGR2RGB)    
+    fig,ax=plt.subplots(figsize=(size,size))
+    ax.set_facecolor((0,0,0))
+    ax.imshow(img)
+
+class Cards():
+    def __init__(self,cards_pck_fn=cards_pck_fn):
+        self._cards=pickle.load(open(cards_pck_fn,'rb'))
+        # self._cards is a dictionary where keys are card names (ex:'Kc') and values are lists of (img,hullHL,hullLR) 
+        self._nb_cards_by_value={k:len(self._cards[k]) for k in self._cards}
+        print("Nb of cards loaded per name :", self._nb_cards_by_value)
+        
+    def get_random(self, card_name=None, display=False):
+        if card_name is None:
+            card_name= random.choice(list(self._cards.keys()))
+        card=self._cards[card_name][random.randint(0,self._nb_cards_by_value[card_name]-1)]
+        if display:
+            if display: display_img(card,"rgb")
+        return card,card_name
+    
+# cards = Cards()
+
+
 cv2.waitKey(0)
-findHull(card ,debug="yes")
+# findHull(img ,debug="yes")
